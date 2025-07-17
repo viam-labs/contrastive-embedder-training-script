@@ -1,0 +1,4 @@
+name: mnist_pairs
+data_path: "./data"  # Path where MNIST dataset will be downloaded and stored
+batch_size: 64
+num_workers: 0 

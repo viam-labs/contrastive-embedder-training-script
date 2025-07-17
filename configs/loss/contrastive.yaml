@@ -1,0 +1,3 @@
+name: contrastive
+distance_metric: cosine
+margin: 2.0

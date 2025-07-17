@@ -1,0 +1,18 @@
+# Generic Pairs Dataset Configuration
+# This is a template configuration for creating your own pair-based dataset
+# Copy this file and modify it for your specific dataset
+
+# Dataset name - used to identify which dataset to load in train.py
+name: generic_pairs
+
+
+
+# Batch size for training and validation
+# Adjust based on your GPU memory and model size
+batch_size: 32
+
+# Number of worker processes for data loading
+num_workers: 0
+
+# Pin memory for faster GPU transfer (recommended for GPU training)
+pin_memory: true
