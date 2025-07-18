@@ -1,0 +1,8 @@
+defaults:
+  - model: simple_cnn
+  - dataset: mnist_pairs
+  - trainer: default
+  - loss: contrastive
+  - _self_
+
+seed: 42 
