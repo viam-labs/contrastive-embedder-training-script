@@ -19,8 +19,21 @@ from models.simple_cnn import SimpleCNN
 class Trainer:
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Set device backend
+        # Check for CUDA (NVIDIA GPU)
+        if torch.cuda.is_available():
+            device = "cuda"
+        # Check for MPS (Apple Silicon GPU)
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        # Fallback to CPU
+        else:
+            device = "cpu"
+        
+        self.device = torch.device(device)
+        print(f"Using device: {self.device}")
 
+        
         # Set random seeds
         torch.manual_seed(cfg.seed)
         np.random.seed(cfg.seed)
