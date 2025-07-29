@@ -9,7 +9,7 @@ class LightweightEmbedder(nn.Module):
         # Lightweight CNN backbone
         self.backbone = nn.Sequential(
             # First conv block
-            nn.Conv2d(input_channels, 32, kernel_size=3, padding=1),  
+            nn.Conv2d(input_channels, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),
@@ -51,4 +51,3 @@ class LightweightEmbedder(nn.Module):
         output1 = self.forward_one(x1)
         output2 = self.forward_one(x2)
         return output1, output2
-
