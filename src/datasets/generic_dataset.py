@@ -141,4 +141,4 @@ def get_generic_datasets(cfg):
         pin_memory=cfg.pin_memory,
     )
 
-    return train_dataloader, val_dataloader
+    return train_dataloader, val_dataloader, None

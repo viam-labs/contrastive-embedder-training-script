@@ -83,4 +83,4 @@ def get_mnist_datasets(cfg: DictConfig):
         num_workers=cfg.num_workers,
     )
 
-    return train_dataloader, test_dataloader
+    return train_dataloader, test_dataloader, None

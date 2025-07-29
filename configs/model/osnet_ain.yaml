@@ -1,0 +1,8 @@
+name: osnet_ain
+params:
+  # x1_0 is best for re-id 
+  variant: x1_0  # Options: x1_0, x0_75, x0_5, x0_25
+  num_classes: 2  # This will be ignored for embedding extraction
+  pretrained: true
+  loss: triplet  # This gives you (predictions, features) tuple; necessary for embedding extraction
+  feature_dim: 512  # Embedding dimension

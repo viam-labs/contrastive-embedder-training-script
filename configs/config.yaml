@@ -1,8 +1,16 @@
 defaults:
-  - model: simple_cnn
-  - dataset: mnist_pairs
+  - model: osnet_ain
+  - dataset: reid_pairs
   - trainer: default
   - loss: contrastive
   - _self_
 
-seed: 42 
+
+seed: 42  
+train_size: 0.65  
+val_size: 0.15   
+test_size: 0.2      
+
+mlflow:
+  experiment_name: "osnet_reid_contrastive"
+  tracking_uri: "file:./mlruns"
