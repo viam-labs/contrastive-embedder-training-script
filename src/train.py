@@ -11,16 +11,17 @@ from tqdm import tqdm
 
 from datasets.generic_dataset import get_generic_datasets
 from datasets.mnist_dataset import get_mnist_datasets
+from datasets.reid_dataset import get_reid_datasets
+
 from losses.contrastive_loss import ContrastiveLoss
 from models.lightweight_embedder import LightweightEmbedder
 from models.simple_cnn import SimpleCNN
-
 
 class Trainer:
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
         # Set device backend
-        # Check for CUDA (NVIDIA GPU)
+        # Check for CUDA (NVIDIA GPU)∂
         if torch.cuda.is_available():
             device = "cuda"
         # Check for MPS (Apple Silicon GPU)
@@ -46,7 +47,8 @@ class Trainer:
         self.model = self._get_model()
         self.criterion = self._get_loss()
         self.optimizer = self._get_optimizer()
-        self.train_dataloader, self.val_dataloader = self._get_dataset()
+        
+        self.train_dataloader, self.val_dataloader, self.test_dataloader = self._get_dataset()
 
         # Training history - track every 10 batches
         self.train_losses = []
@@ -88,6 +90,7 @@ class Trainer:
     def _get_dataset(self):
         """Get dataset based on name and config"""
         dataset_name = self.cfg.dataset.name
+        
         if dataset_name == "mnist_pairs":
             dataset_config = self.cfg.dataset
             return get_mnist_datasets(dataset_config)
@@ -95,6 +98,11 @@ class Trainer:
         elif dataset_name == "generic_pairs":
             dataset_config = self.cfg.dataset
             return get_generic_datasets(dataset_config)
+        elif dataset_name  == "reid_pairs":
+            
+            dataset_config = self.cfg.dataset
+            return get_reid_datasets(dataset_config)
+            
         else:
             raise ValueError(f"Unknown dataset: {dataset_name}")
 
