@@ -1,3 +1,4 @@
 name: lightweight_embedder
 params:
-  embedding_dim: 128 
+  embedding_dim: 128
+  input_channels: 3

@@ -7,15 +7,16 @@ import numpy as np
 import torch
 import torch.optim as optim
 from omegaconf import DictConfig
+from sklearn.metrics import auc, roc_curve
 from tqdm import tqdm
 
 from datasets.generic_dataset import get_generic_datasets
 from datasets.mnist_dataset import get_mnist_datasets
 from datasets.reid_dataset import get_reid_datasets
-
 from losses.contrastive_loss import ContrastiveLoss
 from models.lightweight_embedder import LightweightEmbedder
 from models.simple_cnn import SimpleCNN
+
 
 class Trainer:
     def __init__(self, cfg: DictConfig):
@@ -30,11 +31,10 @@ class Trainer:
         # Fallback to CPU
         else:
             device = "cpu"
-        
+
         self.device = torch.device(device)
         print(f"Using device: {self.device}")
 
-        
         # Set random seeds
         torch.manual_seed(cfg.seed)
         np.random.seed(cfg.seed)
@@ -47,8 +47,10 @@ class Trainer:
         self.model = self._get_model()
         self.criterion = self._get_loss()
         self.optimizer = self._get_optimizer()
-        
-        self.train_dataloader, self.val_dataloader, self.test_dataloader = self._get_dataset()
+
+        self.train_dataloader, self.val_dataloader, self.test_dataloader = (
+            self._get_dataset()
+        )
 
         # Training history - track every 10 batches
         self.train_losses = []
@@ -90,7 +92,7 @@ class Trainer:
     def _get_dataset(self):
         """Get dataset based on name and config"""
         dataset_name = self.cfg.dataset.name
-        
+
         if dataset_name == "mnist_pairs":
             dataset_config = self.cfg.dataset
             return get_mnist_datasets(dataset_config)
@@ -98,11 +100,10 @@ class Trainer:
         elif dataset_name == "generic_pairs":
             dataset_config = self.cfg.dataset
             return get_generic_datasets(dataset_config)
-        elif dataset_name  == "reid_pairs":
-            
+        elif dataset_name == "reid_pairs":
             dataset_config = self.cfg.dataset
             return get_reid_datasets(dataset_config)
-            
+
         else:
             raise ValueError(f"Unknown dataset: {dataset_name}")
 
@@ -259,6 +260,76 @@ class Trainer:
         self.save_final_model()
         self.plot_training_curves()
         print("Training completed!")
+
+        if self.cfg.trainer.run_eval:
+            print("Running evaluation...")
+            self.evaluate()
+
+    def evaluate(self):
+        """Evaluate the model and plot ROC curve"""
+        self.model.eval()
+        all_distances = []
+        all_labels = []
+
+        with torch.no_grad():
+            for batch_idx, (img1, img2, labels) in enumerate(
+                tqdm(self.test_dataloader, desc="Evaluation")
+            ):
+                img1, img2, labels = (
+                    img1.to(self.device),
+                    img2.to(self.device),
+                    labels.to(self.device),
+                )
+
+                # Get embeddings for both images
+                if hasattr(self.model, "forward_one"):
+                    # For siamese networks like SimpleCNN
+                    emb1, emb2 = self.model(img1, img2)
+                else:
+                    # For single-input networks like SimpleEmbedder
+                    emb1 = self.model(img1)
+                    emb2 = self.model(img2)
+
+                # Compute distances between embeddings
+                distances = self.criterion._compute_distance(emb1, emb2)
+
+                # Store distances and labels
+                all_distances.extend(distances.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+
+        # Convert to numpy arrays
+        all_distances = np.array(all_distances)
+        all_labels = np.array(all_labels)
+
+        # Invert distances for ROC curve (smaller distances = same person should be higher scores)
+        # ROC curve expects higher values to indicate positive class
+        scores = -all_distances  # Invert so smaller distances become higher scores
+
+        fpr, tpr, thresholds = roc_curve(all_labels, scores)
+        roc_auc = auc(fpr, tpr)
+
+        # Plot ROC curve
+        plt.figure(figsize=(8, 6))
+        plt.plot(
+            fpr, tpr, color="darkorange", lw=2, label=f"ROC curve (AUC = {roc_auc:.3f})"
+        )
+        plt.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--", label="Random")
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("True Positive Rate")
+        plt.title("Receiver Operating Characteristic (ROC) Curve")
+        plt.legend(loc="lower right")
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(self.cfg.trainer.save_dir, "roc_curve.png"))
+        plt.close()
+
+        print(
+            f"ROC curve saved to {os.path.join(self.cfg.trainer.save_dir, 'roc_curve.png')}"
+        )
+        print(f"AUC: {roc_auc:.3f}")
+
+        return roc_auc
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
