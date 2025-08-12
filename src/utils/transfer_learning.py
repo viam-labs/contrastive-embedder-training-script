@@ -1,7 +1,8 @@
+from omegaconf import DictConfig
 import torch
 import torch.nn as nn
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 import torch.nn.utils.prune as prune
 import logging
 
@@ -11,6 +12,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger('osnet_transfer')
+logger.setLevel(logging.ERROR)
+
 
 class OSNetTransferLearning:
     """
@@ -200,7 +203,8 @@ class OSNetTransferLearning:
         logger.info("Structured pruning complete.")
         return model
 
-# The helper function remains the same, as it was already well-defined.
+
+# Helper functions for transfer learning
 def transfer_x1_0_to_x0_5(source_checkpoint_path: str, target_model, method: str = 'importance',
                           apply_pruning: bool = False, pruning_ratio: float = 0.2):
     """Convenient function to transfer from x1_0 to x0_5."""
@@ -211,3 +215,203 @@ def transfer_x1_0_to_x0_5(source_checkpoint_path: str, target_model, method: str
     if apply_pruning:
         target_model = helper.apply_structured_pruning(target_model, pruning_ratio=pruning_ratio)
     return target_model
+
+
+def apply_transfer_learning(model: torch.nn.Module, cfg: DictConfig, device: torch.device) -> torch.nn.Module:
+    """
+    Apply transfer learning to a model based on configuration.
+    
+    Args:
+        model: Target model to transfer weights to
+        cfg: Configuration containing transfer learning settings
+        device: Device to use for model
+        
+    Returns:
+        Model with transferred weights
+    """
+    if not hasattr(cfg, 'transfer_learning') or not cfg.transfer_learning.enabled:
+        return model
+    
+    # Suppress verbose warnings from transfer learning
+    logging.getLogger('osnet_transfer').setLevel(logging.ERROR)
+    
+    logger.info("="*60)
+    logger.info("APPLYING TRANSFER LEARNING")
+    logger.info("="*60)
+    
+    # Initialize transfer learning helper
+    tl_helper = OSNetTransferLearning()
+    
+    # Load source weights
+    try:
+        source_checkpoint = cfg.transfer_learning.source_checkpoint
+        if not Path(source_checkpoint).exists():
+            raise FileNotFoundError(f"Source checkpoint not found: {source_checkpoint}")
+            
+        source_weights = tl_helper.load_source_weights(source_checkpoint)
+        logger.info(f"Loaded source checkpoint: {source_checkpoint}")
+    except Exception as e:
+        logger.error(f"Failed to load source weights: {e}")
+        raise
+    
+    # Count parameters before transfer
+    params_before = sum(p.numel() for p in model.parameters())
+    
+    # Transfer weights
+    model = tl_helper.transfer_osnet_weights(
+        source_weights,
+        model,
+        source_variant=cfg.transfer_learning.source_variant,
+        target_variant=cfg.model.params.variant,
+        method=cfg.transfer_learning.method,
+        verbose=False  # Keep output clean
+    )
+    
+    # Verify transfer by checking a sample weight
+    sample_weight = None
+    for name, param in model.named_parameters():
+        if 'conv1.conv.weight' in name:
+            sample_weight = param.data.mean().item()
+            break
+    
+    # Print summary
+    params_after = sum(p.numel() for p in model.parameters())
+    logger.info("="*60)
+    logger.info("TRANSFER LEARNING SUMMARY")
+    logger.info("="*60)
+    logger.info(f"Source model: {cfg.transfer_learning.source_variant}")
+    logger.info(f"Target model: {cfg.model.params.variant}")
+    logger.info(f"Transfer method: {cfg.transfer_learning.method}")
+    logger.info(f"Model parameters: {params_after:,}")
+    
+    if sample_weight and abs(sample_weight) > 1e-6:
+        logger.info(f"Weights successfully transferred (sample mean: {sample_weight:.6f})")
+    else:
+        logger.warning("Warning: Transferred weights might be zero or very small")
+    
+    # Apply optional pruning
+    if hasattr(cfg.transfer_learning, 'pruning') and cfg.transfer_learning.pruning.enabled:
+        logger.info(f"Applying pruning (ratio: {cfg.transfer_learning.pruning.ratio})")
+        model = tl_helper.apply_structured_pruning(
+            model,
+            pruning_ratio=cfg.transfer_learning.pruning.ratio,
+            importance_type=cfg.transfer_learning.pruning.get('importance_type', 'l2')
+        )
+        pruned_params = sum(p.numel() for p in model.parameters())
+        logger.info(f"Parameters after pruning: {pruned_params:,} ({(1-pruned_params/params_after)*100:.1f}% reduction)")
+    
+    logger.info("="*60)
+    
+    return model
+
+
+def freeze_layers(model: torch.nn.Module, cfg: DictConfig) -> Dict[str, int]:
+    """
+    Freeze early layers of the model for transfer learning.
+    
+    Args:
+        model: Model to freeze layers in
+        cfg: Configuration with freeze settings
+        
+    Returns:
+        Dictionary with freeze statistics
+    """
+    if not hasattr(cfg, 'transfer_learning') or not cfg.transfer_learning.enabled:
+        return {'frozen': 0, 'total': 0}
+    
+    if not hasattr(cfg.transfer_learning, 'freeze_layers') or cfg.transfer_learning.freeze_layers <= 0:
+        return {'frozen': 0, 'total': 0}
+    
+    num_layer_groups = cfg.transfer_learning.freeze_layers
+    layer_groups = ['conv1', 'conv2', 'conv3', 'conv4', 'conv5']
+    frozen_groups = layer_groups[:num_layer_groups]
+    
+    frozen_params = 0
+    total_params = 0
+    
+    for name, param in model.named_parameters():
+        total_params += 1
+        if any(group in name for group in frozen_groups):
+            param.requires_grad = False
+            frozen_params += 1
+    
+    logger.info(f"Frozen {frozen_params}/{total_params} parameters from layers: {frozen_groups}")
+    
+    return {'frozen': frozen_params, 'total': total_params, 'groups': frozen_groups}
+
+
+def get_optimizer_with_differential_lr(model: torch.nn.Module, cfg: DictConfig):
+    """
+    Create optimizer with differential learning rates for transfer learning.
+    
+    Args:
+        model: Model to optimize
+        cfg: Configuration with optimizer settings
+        
+    Returns:
+        Configured optimizer
+    """
+    # Check if differential learning rates are enabled
+    use_differential = (
+        hasattr(cfg, 'transfer_learning') and 
+        cfg.transfer_learning.enabled and 
+        hasattr(cfg.transfer_learning, 'differential_lr') and
+        cfg.transfer_learning.differential_lr.enabled
+    )
+    
+    if use_differential:
+        # Separate parameters into backbone and head
+        backbone_params = []
+        head_params = []
+        
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue  # Skip frozen parameters
+                
+            if 'fc' in name or 'classifier' in name:
+                head_params.append(param)
+            else:
+                backbone_params.append(param)
+        
+        # Get learning rate scale
+        lr_scale = cfg.transfer_learning.differential_lr.backbone_lr_scale
+        
+        # Create parameter groups
+        param_groups = [
+            {'params': backbone_params, 'lr': cfg.learning_rate * lr_scale},
+            {'params': head_params, 'lr': cfg.learning_rate}
+        ]
+        
+        logger.info("Using differential learning rates:")
+        logger.info(f"  Backbone ({len(backbone_params)} params): {cfg.learning_rate * lr_scale:.6f}")
+        logger.info(f"  Head ({len(head_params)} params): {cfg.learning_rate:.6f}")
+        
+        return torch.optim.Adam(param_groups, weight_decay=cfg.weight_decay)
+    
+    else:
+        # Standard optimizer
+        params_to_update = [p for p in model.parameters() if p.requires_grad]
+        logger.info(f"Standard optimizer: {len(params_to_update)} parameters, lr={cfg.learning_rate}")
+        return torch.optim.Adam(params_to_update, lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
+
+
+def add_transfer_info_to_checkpoint(checkpoint: Dict[str, Any], cfg: DictConfig) -> Dict[str, Any]:
+    """
+    Add transfer learning information to checkpoint if applicable.
+    
+    Args:
+        checkpoint: Checkpoint dictionary
+        cfg: Configuration
+        
+    Returns:
+        Updated checkpoint
+    """
+    if hasattr(cfg, 'transfer_learning') and cfg.transfer_learning.enabled:
+        checkpoint['transfer_learning_info'] = {
+            'source_checkpoint': cfg.transfer_learning.source_checkpoint,
+            'source_variant': cfg.transfer_learning.source_variant,
+            'target_variant': cfg.model.params.variant,
+            'method': cfg.transfer_learning.method,
+            'frozen_layers': getattr(cfg.transfer_learning, 'freeze_layers', 0)
+        }
+    return checkpoint

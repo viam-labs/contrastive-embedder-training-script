@@ -40,13 +40,33 @@ transfer_learning:
 
 # Training settings for the fine-tuning phase
 learning_rate: 0.0001
+weight_decay: 0.0001
 max_epochs: 150
 save_dir: "src/checkpoints/osnet_x0_5_tl_run"
+checkpoint_epoch: 10
+log_interval: 20
+run_eval: true
+
+# Early stopping configuration (important for transfer learning!)
+early_stopping:
+  patience: 15
+  monitor: auc # or 'val_loss'
+  mode: max # 'max' for AUC, 'min' for loss
+  min_delta: 0.001
 
 # Scheduler configuration
 scheduler:
   name: cosine
-  # This configures the scheduler for the fine-tuning phase.
+  # Alternative: use plateau scheduler for transfer learning
+  # name: plateau
+  # patience: 5
+  # gamma: 0.5
+
+# Loss configuration
+loss:
+  name: contrastive
+  margin: 1.0
+  distance_metric: euclidean
 
 # MLflow tracking configuration
 mlflow:
@@ -58,4 +78,10 @@ mlflow:
 
 # Dataset configuration for the fine-tuning phase
 dataset:
+  name: reid_pairs # or your dataset name
   batch_size: 64
+  num_workers: 4
+  # Add your dataset-specific parameters here
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
