@@ -75,22 +75,24 @@ class REIDPairDataset(Dataset):
         
         return resolved_data
     
-        
-    def _load_image(self, image_path: str):
-        """Load image from file path."""
-        try:
-            # If path is relative, make it relative to the JSON file directory
-            if not os.path.isabs(image_path) and self.json_path:   
-                json_dir = os.path.dirname(self.json_path)         
-                full_image_path = os.path.join(json_dir, image_path)  
-            else:
-                full_image_path = image_path
                 
-            image = Image.open(full_image_path).convert('RGB')
+    def _load_image(self, image_path: str):
+        """Load image with error handling - no external dependencies."""
+        try:
+            # Try to load normally
+            image = Image.open(image_path).convert('RGB')
+            # Force load to catch corruption early
+            image.load()
             return image
-        except Exception as e: 
-            raise FileNotFoundError(f"Failed to load image {full_image_path}: {e}")
+            
+        except (OSError, IOError, Image.UnidentifiedImageError, Image.DecompressionBombError) as e:
+            print(f"PIL error for {os.path.basename(image_path)}: {e}")
+            
+        except Exception as e:
+            print(f"Unexpected error for {os.path.basename(image_path)}: {e}")
+            return Image.new('RGB', (224, 224), color=(128, 128, 128))
         
+            
     def __len__(self) -> int:
         """Return number of pairs in the dataset."""
         return len(self.data)
@@ -146,11 +148,11 @@ def get_reid_datasets(cfg):
         val_size=cfg.val_size, 
         test_size=cfg.test_size,
         random_state=cfg.random_state
-    )
+    ) 
     
     # Define transforms with optional augmentation
     if hasattr(cfg, 'augmentation') and hasattr(cfg.augmentation, 'train'):
-        # Use config-defined augmentation
+        # PIL Image transforms
         train_transform = transforms.Compose([
             transforms.Resize(cfg.image_size),
             transforms.RandomHorizontalFlip(p=cfg.augmentation.train.horizontal_flip),
@@ -160,13 +162,15 @@ def get_reid_datasets(cfg):
                 saturation=cfg.augmentation.train.color_jitter.saturation,
                 hue=cfg.augmentation.train.color_jitter.hue
             ),
+            # Convert to tensor
+            transforms.ToTensor(),
+            transforms.Normalize(mean=cfg.mean, std=cfg.std),
+            # Tensor transforms (important order, as RandomErasing works on tensors)
             transforms.RandomErasing(
                 p=cfg.augmentation.train.random_erasing.probability,
-                scale=cfg.augmentation.train.random_erasing.scale,
-                ratio=cfg.augmentation.train.random_erasing.ratio
-            ),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=cfg.mean, std=cfg.std)
+                scale=tuple(cfg.augmentation.train.random_erasing.scale),
+                ratio=tuple(cfg.augmentation.train.random_erasing.ratio)
+            )
         ])
     else:
         # Use minimal augmentation when none specified
@@ -186,9 +190,11 @@ def get_reid_datasets(cfg):
     train_dataset = REIDPairDataset(train_data, transform=train_transform, json_path=json_path)
     val_dataset = REIDPairDataset(val_data, transform=eval_transform, json_path=json_path)
     test_dataset = REIDPairDataset(test_data, transform=eval_transform, json_path=json_path)
-    
-    use_pin_memory = cfg.pin_memory and not torch.backends.mps.is_available()
-
+        
+    if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        use_pin_memory = False  # pin_memory can cause issues on MPS
+    else:
+        use_pin_memory = cfg.pin_memory and torch.cuda.is_available()
     
     # Create dataloaders
     train_dataloader = DataLoader(

@@ -120,3 +120,40 @@ python src/train.py dataset=my_dataset
 ```
 
 This approach allows you to easily switch between different datasets without modifying the config file.
+
+
+# Evaluation 
+Evaluation
+Evaluate trained models directly from MLflow runs. 
+```bash
+# Evaluate latest model from experiment
+python evaluate.py --experiment-name "osnet_ain_contrastive_reid_training"
+```
+
+# Evaluate specific run
+```bash
+python evaluate.py --run-id abc123def456
+```
+
+# List available experiments/runs
+```bash
+python evaluate.py --list-experiments
+```
+```bash
+python evaluate.py --list-runs "experiment_name"
+```
+
+Options
+```bash
+--run-id TEXT              Specific MLflow run ID
+--experiment-name TEXT     Experiment name (uses latest run)
+--tracking-uri TEXT        Custom MLflow server
+--no-plots                Skip saving plots
+--no-mlflow-log           Don't log results to MLflow
+```
+
+Output
+
+Metrics: AUC, accuracy, optimal threshold, distance statistics
+Plots: ROC curve, distance distributions, box plots
+MLflow Logging: Results automatically logged for tracking
