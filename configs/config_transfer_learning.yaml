@@ -1,0 +1,61 @@
+# @package _global_
+
+# This config enables transfer learning from a large OSNet model to a smaller one.
+# It inherits from a base config for shared settings.
+defaults:
+  - config
+  - _self_
+
+# Model configuration for the smaller, target model (e.g., x0_5)
+model:
+  name: osnet_ain
+  params:
+    variant: x0_5
+    num_classes: 2
+    # We set pretrained to false here because we're using our own
+    # pre-trained weights from the larger model, not ImageNet weights.
+    pretrained: false
+    feature_dim: 256
+
+# Transfer learning configuration
+transfer_learning:
+  enabled: true
+  source_checkpoint: "src/weights/osnet_x1_0_e25_20250812.pth.tar"
+  source_variant: x1_0
+  method: importance # Method for weight transfer: 'importance', 'center', or 'random'.
+
+  # Fine-tuning options
+  freeze_layers: 2 # Number of early layers to freeze. 0 to disable.
+  differential_lr:
+    enabled: true
+    # The backbone will have a learning rate of: learning_rate * backbone_lr_scale
+    # The classification head will use the base learning_rate.
+    backbone_lr_scale: 0.1
+
+  # Optional pruning after transfer
+  pruning:
+    enabled: false
+    ratio: 0.2
+    importance_type: l2
+
+# Training settings for the fine-tuning phase
+learning_rate: 0.0001
+max_epochs: 150
+save_dir: "src/checkpoints/osnet_x0_5_tl_run"
+
+# Scheduler configuration
+scheduler:
+  name: cosine
+  # This configures the scheduler for the fine-tuning phase.
+
+# MLflow tracking configuration
+mlflow:
+  experiment_name: "osnet_transfer_learning"
+  tags:
+    transfer_method: ${transfer_learning.method}
+    source_variant: ${transfer_learning.source_variant}
+    target_variant: ${model.params.variant}
+
+# Dataset configuration for the fine-tuning phase
+dataset:
+  batch_size: 64

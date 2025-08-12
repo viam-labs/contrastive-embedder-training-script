@@ -1,8 +1,11 @@
 name: osnet_ain
 params:
-  # x1_0 is best for re-id 
-  variant: x1_0  # Options: x1_0, x0_75, x0_5, x0_25
-  num_classes: 2  # This will be ignored for embedding extraction
-  pretrained: true
-  loss: triplet  # This gives you (predictions, features) tuple; necessary for embedding extraction
-  feature_dim: 512  # Embedding dimension
+  # x1_0 is best for re-id
+  variant: x1_0 # Options: x1_0, x0_75, x0_5, x0_25
+  # variant: "x0_75"   # Uncomment if x1_0 still overfits
+  num_classes: 2 # This will be ignored for embedding extraction
+  pretrained: false
+  loss: triplet # This gives you (predictions, features) tuple; necessary for embedding extraction
+  feature_dim: 256 # Embedding dimension - smaller features = less overfitting
+  feature_norm: "l2" # Always L2 normalize features before distance calculation
+  dropout_p: 0.2 # Light dropout in fully connected layers for better generalization

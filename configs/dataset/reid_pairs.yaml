@@ -1,35 +1,80 @@
 # @package _global_
 dataset:
   name: "reid_pairs"
-  source_json_path: "~/data/reid_data/20250727/reid_pairs.json"   
-  
+  source_json_path: "../reid_data/20250727/reid_pairs.json"
+
   # Use main config values if defined, otherwise use defaults
   train_size: ${train_size}
   val_size: ${val_size}
   test_size: ${test_size}
   random_state: ${seed}
-  
+
   image_size: [256, 128]
   mean: [0.485, 0.456, 0.406]
   std: [0.229, 0.224, 0.225]
-  
-  # augmentation:
-  #   train:
-  #     horizontal_flip: 0.5
-  #     color_jitter:
-  #       brightness: 0.2
-  #       contrast: 0.2
-  #       saturation: 0.2
-  #       hue: 0.1
-  #     random_erasing:
-  #       probability: 0.5
-  #       scale: [0.02, 0.33]
-  #       ratio: [0.3, 3.3]
-  
-  batch_size: 64
+
+  augmentation:
+    train:
+      horizontal_flip: 0.5
+
+      color_jitter:
+        brightness: 0.2 # Increased from 0.1
+        contrast: 0.2 # Increased from 0.1
+        saturation: 0.15 # Increased from 0.1
+        hue: 0.1 # Increased from 0.05
+
+      random_erasing:
+        probability: 0.3 # Increased from 0.2
+        scale: [0.02, 0.3] # Increased upper bound
+        ratio: [0.3, 3.0] # Wider aspect ratios
+
+      # Add more augmentations for robustness
+      gaussian_blur:
+        probability: 0.2
+        sigma: [0.1, 1.0]
+
+      random_grayscale:
+        probability: 0.1
+
+  batch_size: 16 # Reduced from 32 for more frequent updates
   num_workers: 8
-  pin_memory: false
+  pin_memory: true # Enable for faster GPU transfer (was false)
   shuffle:
     train: true
     val: false
     test: false
+
+# Training parameters specific to ReID
+max_epochs: 150 # ReID often needs more epochs
+learning_rate: 0.00003
+weight_decay: 0.0005 # Slightly higher for better generalization
+log_interval: 50 # More frequent logging for ReID
+save_dir: "./checkpoints/osnet_v2"
+checkpoint_epoch: 5
+run_eval: true
+
+# Add early stopping to prevent overfitting
+early_stopping:
+  patience: 15 # Stop if no improvement for 15 epochs
+  monitor: "val_precision" # Monitor precision to reduce false positives
+  min_delta: 0.001 # Minimum improvement threshold
+  mode: "max" # Maximize precision
+
+# Add learning rate scheduling
+scheduler:
+  name: "cosine_annealing"
+  T_max: ${max_epochs}
+  eta_min: 0.00001 # Minimum learning rate
+
+# Evaluation focused on FAR reduction
+evaluation:
+  # Test multiple distance thresholds (for margin=2.0 contrastive loss)
+  distance_thresholds: [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+  # Primary metrics for reducing false positives
+  primary_metric: "precision" # Focus on precision
+  secondary_metric: "f1_score" # Balance with recall
+
+  # Target performance
+  target_precision: 0.98 # Target 98%+ precision
+  target_far: 0.03 # Target <3% False Acceptance Rate
