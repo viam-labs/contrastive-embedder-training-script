@@ -256,6 +256,14 @@ class HydraCheckpointEvaluator:
                 else:
                     emb1 = self.model(img1)
                     emb2 = self.model(img2)
+                    
+                    
+                if len(emb1.shape) > 2:  # If shape is [batch, channels, height, width]
+                    print(f"DEBUG - Fixing embedding shapes from {emb1.shape}")
+                    emb1 = emb1.view(emb1.size(0), -1)  # Flatten to [batch, features]
+                    emb2 = emb2.view(emb2.size(0), -1)
+                    print(f"DEBUG - Fixed to emb1: {emb1.shape}, emb2: {emb2.shape}")    
+                
 
                 # Compute distances
                 if hasattr(self.criterion, '_compute_distance'):

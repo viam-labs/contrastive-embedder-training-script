@@ -1,0 +1,114 @@
+# @package _global_
+
+# Fixed config with corrected progressive unfreezing strategy
+defaults:
+  - config
+  - _self_
+
+# Model configuration
+model:
+  name: osnet_ain
+  params:
+    variant: x0_5 # Training x0_5, so we only need this variant
+    num_classes: 2
+    pretrained: false
+    feature_dim: 256
+    dropout_p: 0.4
+
+# Transfer learning configuration
+transfer_learning:
+  enabled: true
+  source_checkpoint: "src/weights/osnet_x1_0_e25_20250812.pth.tar"
+  source_variant: x1_0
+  method: importance
+
+  # FIXED: Progressive unfreezing strategy that makes sense
+  progressive_unfreezing:
+    enabled: true
+    stages:
+      # Stage 1: Freeze most layers, train only classifier + last conv block
+      - epochs: 20
+        freeze_layers: 4 # Freeze conv1, conv2, conv3, part of conv4
+        lr: 1e-4
+
+      # Stage 2: Unfreeze conv4, keep conv1-3 frozen
+      - epochs: 30
+        freeze_layers: 3 # Freeze conv1, conv2, conv3
+        lr: 5e-5
+
+      # Stage 3: Unfreeze conv3, keep conv1-2 frozen
+      - epochs: 40
+        freeze_layers: 2 # Freeze conv1, conv2
+        lr: 2e-5
+
+      # Stage 4: Unfreeze conv2, keep only conv1 frozen
+      - epochs: 30
+        freeze_layers: 1 # Freeze only conv1
+        lr: 1e-5
+
+      # Stage 5: Full fine-tuning
+      - epochs: 30
+        freeze_layers: 0 # No frozen layers
+        lr: 5e-6
+
+  # Differential learning rates
+  differential_lr:
+    enabled: true
+    backbone_lr_scale: 0.1
+
+  # Pruning disabled for now
+  pruning:
+    enabled: false
+    ratio: 0.2
+    importance_type: l2
+
+# Training settings that match the progressive schedule
+learning_rate: 1e-4 # Starting LR (will be overridden by progressive schedule)
+weight_decay: 1e-4
+batch_size: 32
+max_epochs: 150 # Total: 20+30+40+30+30 = 150 epochs
+save_dir: "src/checkpoints/osnet_x0_5_improved_tl"
+checkpoint_epoch: 5
+evaluation_interval: 2 # Validate every 2 epochs to save time
+log_interval: 10
+run_eval: true
+
+# Early stopping
+early_stopping:
+  patience: 25 # Increased patience for progressive training
+  monitor: val_loss
+  mode: min
+  min_delta: 1e-4
+
+# Scheduler - use a more gentle approach for progressive training
+scheduler:
+  name: step # Step scheduler works better with progressive unfreezing
+  step_size: 50
+  gamma: 0.5
+  min_lr: 1e-7
+
+# Loss configuration
+loss:
+  name: contrastive
+  margin: 1.0
+  distance_metric: euclidean
+
+# MLflow tracking
+mlflow:
+  experiment_name: "osnet_x0_5_progressive_transfer"
+  tags:
+    strategy: "progressive_unfreezing_fixed"
+    transfer_method: ${transfer_learning.method}
+    source_variant: ${transfer_learning.source_variant}
+    target_variant: ${model.params.variant}
+
+# Dataset configuration
+dataset:
+  name: reid_pairs
+  batch_size: 32
+  num_workers: 4
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+
+resume_from_checkpoint: null

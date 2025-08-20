@@ -1,0 +1,95 @@
+# @package _global_
+
+# OPTIMAL x0.25 Configuration: Pure Knowledge Distillation
+# This is the recommended approach for x0.25 edge deployment
+
+defaults:
+  - config
+  - _self_
+
+model:
+  name: osnet_ain
+  params:
+    variant: x0_25 # Smallest variant - 140K parameters
+    num_classes: 2
+    pretrained: false
+    feature_dim: 512 # High feature dim to compensate for small backbone
+    dropout_p: 0.6 # Strong regularization for small model
+
+# PURE KNOWLEDGE DISTILLATION - No transfer learning
+knowledge_distillation:
+  enabled: true
+  teacher_checkpoint: "src/release_candidates/osnet_x1_0_20250731_e19.pth.tar"
+  teacher_variant: x1_0
+  temperature: 6.0 # High temperature for soft targets
+  alpha: 0.8 # Strong teacher guidance (80%)
+  feature_weight: 0.1 # Feature matching weight
+
+# NO transfer learning section - avoid conflicts and complexity
+
+loss:
+  name: contrastive
+  margin: 0.8 # Smaller margin for tiny model
+  distance_metric: cosine
+  normalize_embeddings: true
+
+# Optimized training for distillation
+learning_rate: 5e-4 # Higher LR for distillation learning
+weight_decay: 1e-3 # Strong regularization
+batch_size: 128 # Large batches for stable distillation
+max_epochs: 100 # Shorter training - distillation is efficient
+save_dir: "src/checkpoints/osnet_x0_25_optimal"
+checkpoint_epoch: 5
+evaluation_interval: 1
+log_interval: 10
+run_eval: true
+
+early_stopping:
+  patience: 20 # Less patience - faster convergence with distillation
+  monitor: val_loss
+  mode: max
+  min_delta: 0.001
+
+scheduler:
+  name: cosine # Cosine annealing works well with distillation
+  T_max: 100 # Match max_epochs
+  eta_min: 1e-6
+
+# Aggressive data augmentation for small models
+data_augmentation:
+  enabled: true
+  horizontal_flip: 0.6
+  color_jitter:
+    brightness: 0.3
+    contrast: 0.3
+    saturation: 0.3
+    hue: 0.15
+  random_rotation: 25
+  random_erasing:
+    probability: 0.6
+    scale: [0.02, 0.5]
+    ratio: [0.3, 3.3]
+  gaussian_blur:
+    probability: 0.3
+    sigma: [0.1, 1.5]
+  random_grayscale:
+    probability: 0.15
+
+mlflow:
+  experiment_name: "osnet_x0_25_optimal_distillation"
+  tags:
+    model_variant: "x0_25"
+    strategy: "pure_knowledge_distillation"
+    teacher_model: "osnet_x1_0_20250731_e19"
+    target_device: "edge"
+    optimization: "speed_and_accuracy"
+
+dataset:
+  name: reid_pairs
+  batch_size: 128 # Large batch for distillation stability
+  num_workers: 8
+  train_ratio: 0.65
+  val_ratio: 0.15
+  test_ratio: 0.2
+
+resume_from_checkpoint: null

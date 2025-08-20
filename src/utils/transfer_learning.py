@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple, Any
 import torch.nn.utils.prune as prune
 import logging
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 
 # Set up a logger instance for the module
 logging.basicConfig(
@@ -339,19 +340,17 @@ def freeze_layers(model: torch.nn.Module, cfg: DictConfig) -> Dict[str, int]:
     
     return {'frozen': frozen_params, 'total': total_params, 'groups': frozen_groups}
 
-
 def get_optimizer_with_differential_lr(model: torch.nn.Module, cfg: DictConfig):
     """
-    Create optimizer with differential learning rates for transfer learning.
+    Create optimizer with differential learning rates and improved defaults.
     
     Args:
         model: Model to optimize
         cfg: Configuration with optimizer settings
         
     Returns:
-        Configured optimizer
+        Configured optimizer (AdamW for better weight decay handling)
     """
-    # Check if differential learning rates are enabled
     use_differential = (
         hasattr(cfg, 'transfer_learning') and 
         cfg.transfer_learning.enabled and 
@@ -360,39 +359,47 @@ def get_optimizer_with_differential_lr(model: torch.nn.Module, cfg: DictConfig):
     )
     
     if use_differential:
-        # Separate parameters into backbone and head
         backbone_params = []
         head_params = []
         
         for name, param in model.named_parameters():
             if not param.requires_grad:
-                continue  # Skip frozen parameters
+                continue
                 
             if 'fc' in name or 'classifier' in name:
                 head_params.append(param)
             else:
                 backbone_params.append(param)
         
-        # Get learning rate scale
         lr_scale = cfg.transfer_learning.differential_lr.backbone_lr_scale
         
-        # Create parameter groups
         param_groups = [
-            {'params': backbone_params, 'lr': cfg.learning_rate * lr_scale},
-            {'params': head_params, 'lr': cfg.learning_rate}
+            {
+                'params': backbone_params, 
+                'lr': cfg.learning_rate * lr_scale,
+                'weight_decay': cfg.weight_decay
+            },
+            {
+                'params': head_params, 
+                'lr': cfg.learning_rate,
+                'weight_decay': cfg.weight_decay
+            }
         ]
         
         logger.info("Using differential learning rates:")
         logger.info(f"  Backbone ({len(backbone_params)} params): {cfg.learning_rate * lr_scale:.6f}")
         logger.info(f"  Head ({len(head_params)} params): {cfg.learning_rate:.6f}")
         
-        return torch.optim.Adam(param_groups, weight_decay=cfg.weight_decay)
+        return torch.optim.AdamW(param_groups)
     
     else:
-        # Standard optimizer
         params_to_update = [p for p in model.parameters() if p.requires_grad]
         logger.info(f"Standard optimizer: {len(params_to_update)} parameters, lr={cfg.learning_rate}")
-        return torch.optim.Adam(params_to_update, lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
+        return torch.optim.AdamW(
+            params_to_update, 
+            lr=cfg.learning_rate, 
+            weight_decay=cfg.weight_decay
+        )
 
 
 def add_transfer_info_to_checkpoint(checkpoint: Dict[str, Any], cfg: DictConfig) -> Dict[str, Any]:
@@ -415,3 +422,61 @@ def add_transfer_info_to_checkpoint(checkpoint: Dict[str, Any], cfg: DictConfig)
             'frozen_layers': getattr(cfg.transfer_learning, 'freeze_layers', 0)
         }
     return checkpoint
+
+def create_scheduler(optimizer, cfg):
+    """
+    Create  learning rate scheduler with more stable options.
+    
+    Args:
+        optimizer: PyTorch optimizer
+        cfg: Configuration with scheduler settings
+        
+    Returns:
+        Learning rate scheduler or None
+    """
+    if not hasattr(cfg, 'scheduler') or not cfg.scheduler:
+        return None
+    
+    scheduler_name = cfg.scheduler.name
+    
+    if scheduler_name == "cosine_restarts":
+        return CosineAnnealingWarmRestarts(
+            optimizer, 
+            T_0=getattr(cfg.scheduler, 'restart_period', 30),
+            eta_min=getattr(cfg.scheduler, 'min_lr', 1e-7)
+        )
+    elif scheduler_name == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=cfg.max_epochs
+        )
+    elif scheduler_name == "step":
+        return torch.optim.lr_scheduler.StepLR(
+            optimizer, 
+            step_size=cfg.scheduler.step_size, 
+            gamma=cfg.scheduler.gamma
+        )
+    elif scheduler_name == "plateau":
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', 
+            patience=cfg.scheduler.patience, 
+            factor=cfg.scheduler.gamma
+        )
+    else:
+        logger.warning(f"Unknown scheduler: {scheduler_name}")
+        return None
+    
+    
+def clip_gradients(model, max_norm=1.0):
+    """
+    Clip gradients to prevent exploding gradients during training.
+    
+    Args:
+        model: PyTorch model
+        max_norm: Maximum gradient norm
+        
+    Returns:
+        Total gradient norm before clipping
+    """
+    if max_norm > 0:
+        return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+    return 0.0
