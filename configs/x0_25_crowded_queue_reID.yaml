@@ -1,0 +1,168 @@
+# @package _global_
+
+# ENHANCED x0.25 Configuration for Crowded Queue Re-ID
+# Optimized for challenging scenarios: occlusion, pose changes, lighting variations
+
+defaults:
+  - config
+  - _self_
+
+model:
+  name: osnet_ain
+  params:
+    variant: x0_25
+    num_classes: 2
+    pretrained: false
+    feature_dim: 512
+    dropout_p: 0.5 # REDUCED from 0.6 for better capacity utilization
+
+# ENHANCED knowledge distillation for challenging scenarios
+knowledge_distillation:
+  enabled: true
+  teacher_checkpoint: "src/release_candidates/rc_08192025/osnet_x1_0_20250731_e19.pth.tar"
+  teacher_variant: x1_0
+  temperature: 4.0 # REDUCED from 6.0 for sharper knowledge transfer
+  alpha: 0.85 # INCREASED from 0.8 for stronger teacher guidance
+  feature_weight: 0.15 # INCREASED from 0.1 for better feature alignment
+
+loss:
+  name: contrastive
+  margin: 0.6 # REDUCED from 0.8 for tighter decision boundary
+  distance_metric: cosine
+  normalize_embeddings: true
+
+# OPTIMIZED training for higher accuracy
+learning_rate: 3e-4 # REDUCED from 5e-4 for more stable learning
+weight_decay: 5e-4 # REDUCED from 1e-3 to allow more model capacity
+batch_size: 96 # REDUCED from 128 for more gradient updates
+max_epochs: 150 # INCREASED from 100 for thorough training
+save_dir: "src/checkpoints/osnet_x0_25_crowded_queue"
+checkpoint_epoch: 5
+evaluation_interval: 1
+log_interval: 10
+run_eval: true
+
+# IMPROVED early stopping for challenging scenarios
+early_stopping:
+  patience: 30 # INCREASED from 20 for more thorough learning
+  monitor: val_f1 # CHANGED from val_loss to focus on task performance
+  mode: max # CHANGED to max for F1 monitoring
+  min_delta: 0.0005 # REDUCED for more sensitive improvement detection
+
+# ENHANCED scheduler for long training
+scheduler:
+  name: cosine_with_restarts # CHANGED for better long-term optimization
+  T_0: 40 # Initial restart period
+  T_mult: 1 # Keep restart period constant
+  eta_min: 1e-7 # Lower minimum LR
+
+# AGGRESSIVE data augmentation for robustness to real-world variations
+data_augmentation:
+  enabled: true
+
+  # Enhanced geometric augmentations for pose variation
+  horizontal_flip: 0.5 # Standard flip
+  random_rotation: 30 # INCREASED from 25 for more pose variation
+  random_perspective: # NEW: Handle viewing angle changes
+    probability: 0.3
+    distortion_scale: 0.2
+
+  # Enhanced photometric augmentations for lighting/crowd conditions
+  color_jitter:
+    brightness: 0.4 # INCREASED from 0.3
+    contrast: 0.4 # INCREASED from 0.3
+    saturation: 0.4 # INCREASED from 0.3
+    hue: 0.2 # INCREASED from 0.15
+
+  # Occlusion simulation for crowded scenarios
+  random_erasing:
+    probability: 0.7 # INCREASED from 0.6
+    scale: [0.02, 0.4] # Allow larger occlusions
+    ratio: [0.3, 3.3]
+    value: "random" # Random colors for occlusion
+
+  # Additional robustness augmentations
+  gaussian_blur:
+    probability: 0.4 # INCREASED from 0.3
+    sigma: [0.1, 2.0] # INCREASED range for motion blur
+  random_grayscale:
+    probability: 0.2 # INCREASED from 0.15
+
+  # NEW: Advanced augmentations for crowded scenarios
+  gaussian_noise: # Simulate camera noise in crowds
+    probability: 0.3
+    std: 0.02
+  random_brightness: # Additional lighting variation
+    probability: 0.4
+    limit: 0.2
+  random_contrast: # Additional contrast variation
+    probability: 0.4
+    limit: 0.2
+
+# ENHANCED training techniques for higher accuracy
+advanced_training:
+  # Label smoothing for better generalization
+  label_smoothing: 0.05 # Soft targets for hard labels
+
+  # Mixup for better feature learning
+  mixup:
+    enabled: true
+    alpha: 0.3 # Mix ratio
+    probability: 0.4 # Apply to 40% of batches
+
+  # Focal loss component for hard examples
+  focal_loss:
+    enabled: true
+    alpha: 0.25
+    gamma: 1.5 # Focus on hard examples
+    weight: 0.1 # Additional loss component weight
+
+# CURRICULUM learning for challenging scenarios
+curriculum_learning:
+  enabled: true
+  stages:
+    # Stage 1: Easy samples (clear poses, good lighting)
+    - epochs: 30
+      difficulty: "easy"
+      sample_ratio: 0.6 # Use 60% easiest samples
+
+    # Stage 2: Medium samples (some occlusion/pose variation)
+    - epochs: 60
+      difficulty: "medium"
+      sample_ratio: 0.8 # Use 80% of samples
+
+    # Stage 3: All samples (including hardest cases)
+    - epochs: 60
+      difficulty: "hard"
+      sample_ratio: 1.0 # Use all samples
+
+mlflow:
+  experiment_name: "osnet_x0_25_crowded_queue_reID"
+  tags:
+    model_variant: "x0_25"
+    strategy: "enhanced_knowledge_distillation"
+    teacher_model: "osnet_x1_0_20250731_e19"
+    target_device: "edge"
+    scenario: "crowded_queue_reidentification"
+    optimization: "maximum_accuracy"
+
+dataset:
+  name: reid_pairs
+  batch_size: 96 # Smaller batches for more updates
+  num_workers: 8
+  train_ratio: 0.7 # INCREASED from 0.65 for more training data
+  val_ratio: 0.15
+  test_ratio: 0.15 # REDUCED to give more training data
+
+# VALIDATION strategy for challenging scenarios
+validation:
+  # Test on hard samples during validation
+  hard_sample_validation: true
+
+  # Multiple threshold testing
+  threshold_range: [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]
+
+  # Cross-validation on different difficulty levels
+  stratified_validation: true
+
+resume_from_checkpoint: null

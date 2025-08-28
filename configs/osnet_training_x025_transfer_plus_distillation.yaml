@@ -1,0 +1,62 @@
+# @package _global_
+
+# Quick test configuration for x0.25 with distillation
+# Reduced epochs for faster testing
+
+defaults:
+  - config
+  - _self_
+
+model:
+  name: osnet_ain
+  params:
+    variant: x0_25
+    num_classes: 2
+    pretrained: false
+    feature_dim: 512
+    dropout_p: 0.6
+
+knowledge_distillation:
+  enabled: true
+  teacher_checkpoint: "src/release_candidates/osnet_x1_0_20250731_e19.pth.tar"
+  teacher_variant: x1_0
+  temperature: 6.0
+  alpha: 0.8
+  feature_weight: 0.1
+
+loss:
+  name: contrastive
+  margin: 0.8
+  distance_metric: cosine
+  normalize_embeddings: true
+
+learning_rate: 5e-4
+weight_decay: 1e-3
+batch_size: 128
+max_epochs: 20 # Quick test - just 20 epochs
+save_dir: "src/checkpoints/osnet_x0_25_quick_test"
+evaluation_interval: 1
+log_interval: 5
+
+early_stopping:
+  patience: 10 # Short patience for quick test
+  monitor: val_f1
+  mode: max
+
+scheduler:
+  name: cosine
+  T_max: 20
+  eta_min: 1e-6
+
+mlflow:
+  experiment_name: "osnet_x0_25_quick_test"
+
+dataset:
+  name: reid_pairs
+  batch_size: 128
+  num_workers: 8
+  train_ratio: 0.65
+  val_ratio: 0.15
+  test_ratio: 0.2
+
+resume_from_checkpoint: null

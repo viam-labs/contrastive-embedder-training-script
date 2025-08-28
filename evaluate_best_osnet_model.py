@@ -350,10 +350,14 @@ def main():
     print("="*70)
     
     # Define your candidate folders - ADD YOUR ACTUAL PATHS HERE
+    # candidates_folders = [
+    #     "src/checkpoints/osnet_x0_25_optimal",
+    #     "src/model_candidates",
+    #     "src/checkpoints"  # Add any other folders with your model variants
+    # ]
+    
     candidates_folders = [
-        "src/checkpoints/osnet_x0_25_optimal",
-        "src/model_candidates",
-        "src/checkpoints"  # Add any other folders with your model variants
+        "src/checkpoints/osnet_x0_25_crowded_queue"
     ]
     
     # Auto-generate today's release candidate folder
